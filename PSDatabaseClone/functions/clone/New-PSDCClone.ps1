@@ -390,11 +390,7 @@
                             $null = Invoke-PSFCommand -ScriptBlock $script
                         }
                         else {
-                            #$command = [ScriptBlock]::Create("New-VHD -ParentPath $ParentVhd -Path `"$Destination\$CloneName.vhdx`" -Differencing")
-                            $command = [ScriptBlock]::Create("Set-Content -Path $diskpartScriptFile -Value ""$command"" -Force")
-                            $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
-
-                            $command = [ScriptBlock]::Create("diskpart /s $diskpartScriptFile")
+                            $command = [ScriptBlock]::Create("New-VHD -ParentPath $ParentVhd -Path `"$Destination\$CloneName.vhdx`" -Differencing")
                             $vhd = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
 
                             if (-not $vhd) {
@@ -427,7 +423,7 @@
                             $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
 
                             # Get the disk based on the name of the vhd
-                            $command = [ScriptBlock]::Create("Get-DiskImage -ImagePath `"$Destination\$CloneName.vhdx`"")
+                            $command = [ScriptBlock]::Create("Get-Vhd -Path `"$Destination\$CloneName.vhdx`"")
                             $disk = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
                         }
                     }
@@ -455,14 +451,14 @@
                         # Check if computer is local
                         if ($computer.IsLocalhost) {
                             # Get the partition based on the disk
-                            $partition = Get-Partition -Disk $disk | Where-Object { $_.Type -ne "Reserved" } | Select-Object -First 1
+                            $partition = Get-Partition -Disk $disk | Where-Object { !$_.IsHidden } | Select-Object -First 1
 
                             # Create an access path for the disk
                             $null = Add-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition.PartitionNumber -AccessPath $accessPath -ErrorAction SilentlyContinue
                         }
                         else {
                             $command = [ScriptBlock]::Create("Get-Partition -DiskNumber $($disk.Number)")
-                            $partition = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential | Where-Object { $_.Type -ne "Reserved" } | Select-Object -First 1
+                            $partition = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
 
                             $command = [ScriptBlock]::Create("Add-PartitionAccessPath -DiskNumber $($disk.Number) -PartitionNumber $($partition.PartitionNumber) -AccessPath '$accessPath' -ErrorAction Ignore")
 
@@ -517,7 +513,7 @@
                     $databaseFiles = Get-ChildItem -Path $accessPath -Filter *.*df -Recurse
                 }
                 else {
-                    $commandText = "Get-ChildItem -Path '$accessPath' -Filter *.*df -Recurse"
+                    $commandText = "Get-ChildItem -Path $accessPath -Filter *.*df -Recurse"
                     $command = [ScriptBlock]::Create($commandText)
                     $databaseFiles = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
                 }
