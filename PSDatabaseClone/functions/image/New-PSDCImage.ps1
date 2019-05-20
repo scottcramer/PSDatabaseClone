@@ -69,9 +69,6 @@
     .PARAMETER UseLastFullBackup
         Use the last full backup created for the database
 
-    .PARAMETER UseLastBackup
-        Use the last backup created for the database
-
     .PARAMETER CopyOnlyBackup
         Create a backup as COPY_ONLY
 
@@ -141,7 +138,6 @@
         [string]$VhdType,
         [switch]$CreateFullBackup,
         [switch]$UseLastFullBackup,
-        [switch]$UseLastBackup,
         [switch]$CopyOnlyBackup,
         [Alias('MaskingConfigFile', 'MaskingConfigFilePath')]
         [string]$MaskingFile,
@@ -395,11 +391,6 @@
 
                 # Get the last full backup
                 $lastFullBackup = Get-DbaBackupHistory -SqlServer $SourceSqlInstance -SqlCredential $SourceSqlCredential -Databases $db.Name -LastFull
-            }
-            elseif ($UseLastBackup) {
-                Write-PSFMessage -Message "Trying to retrieve the last backup for $db" -Level Verbose
-
-                $lastFullBackup = Get-DbaBackupHistory -SqlServer $SourceSqlInstance -SqlCredential $SourceSqlCredential -Databases $db.Name -Last
             }
 
             if ($PSCmdlet.ShouldProcess("$imageName", "Creating the vhd")) {
