@@ -106,24 +106,23 @@ function Remove-PSDCUnusedImage {
 
         # Group the objects to make it easier to go through
         $images = $InputObject | Group-Object ImageID
-        $results = @()
 
         foreach ($image in $images) {
             $clones = Get-PSDCClone -ImageID $item.ImageID
-            if ($clones.Count -eq 0)
+            if ($clones.Count -ge 1)
             {
-                $results += $image
+                $images.Remove($image)
             }
         }
 
-        $results = $results | Sort-Object -Property CreatedOn -Descending | Select-Object -Skip $Keep
+        $images = $images | Sort-Object -Property CreatedOn -Descending | Select-Object -Skip $Keep
 
-        if ($results.Count -eq 0) {
+        if ($images.Count -eq 0) {
             Stop-PSFFunction -Message "No images to remove"
         }
 
-        foreach ($item in $results) {
-            Remove-PSDCImage -ImageID $item.ImageID
+        foreach ($image in $images) {
+            Remove-PSDCImage -ImageID $image.ImageID
         }
 
     } # End process
