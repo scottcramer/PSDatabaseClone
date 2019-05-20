@@ -311,8 +311,8 @@
 
         # Check the image local path
         if ($PSCmdlet.ShouldProcess("Verifying image local path")) {
-            if ((Test-DbaPath -Path $ImageLocalPath -SqlInstance $SourceSqlInstance -SqlCredential $DestinationCredential) -ne $true) {
-                Stop-PSFFunction -Message "Image local path $ImageLocalPath is not valid directory or can't be reached." -Target $SourceSqlInstance
+            if ((Test-DbaPath -Path $ImageLocalPath -SqlInstance $DestinationSqlInstance -SqlCredential $DestinationCredential) -ne $true) {
+                Stop-PSFFunction -Message "Image local path $ImageLocalPath is not valid directory or can't be reached." -Target $DestinationSqlInstance
                 return
             }
 
@@ -465,7 +465,7 @@
 
                 # Get the properties of the disk and partition
                 $disk = $diskResult.Disk
-                $partition = $diskResult.Partition | Where-Object { !$_.IsHidden } | Select-Object -First 1
+                $partition = $diskResult.Partition | Where-Object { $_.Type -ne "Reserved" } | Select-Object -First 1
 
                 if ($PSCmdlet.ShouldProcess($accessPath, "Adding access path '$accessPath' to mounted disk")) {
                     # Add the access path to the mounted disk
