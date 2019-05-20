@@ -272,13 +272,16 @@
                         }
                     }
                     elseif ($informationStore -eq 'File') {
-                        $imageData = Get-PSDCImage | Where-Object {$_.ImageID -ne $item.ImageID}
+                        $imageData = Get-PSDCImage
+                        [array]$newImageData = $null
+
+                        $imageData = $imageData | Where-Object {$_.ImageID -ne $item.ImageID}
 
                         # Set the image file
                         $jsonImageFile = "PSDCJSONFolder:\images.json"
 
                         # Convert the data back to JSON
-                        if ($imageData.Count -ge 1) {
+                        if ($newImageData.Count -ge 1) {
                             $imageData | ConvertTo-Json | Set-Content $jsonImageFile
                         }
                         else {
