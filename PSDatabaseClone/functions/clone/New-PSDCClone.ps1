@@ -381,23 +381,12 @@
 
                         $command = "create vdisk file='$Destination\$CloneName.vhdx' parent='$ParentVhd'"
 
-                        # Check if computer is local
-                        if ($computer.IsLocalhost) {
-                            # Set the content of the diskpart script file
-                            Set-Content -Path $diskpartScriptFile -Value $command -Force
-
-                            $script = [ScriptBlock]::Create("diskpart /s $diskpartScriptFile")
-                            $null = Invoke-PSFCommand -ScriptBlock $script
-                        }
-                        else {
-                            $command = [ScriptBlock]::Create("New-VHD -ParentPath $ParentVhd -Path `"$Destination\$CloneName.vhdx`" -Differencing")
-                            $vhd = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
-
-                            if (-not $vhd) {
-                                return
-                            }
-                        }
-
+                        $null = Invoke-PSFCommand -ComputerName $computer -Credential $Credential {
+                            $tempFile = (New-TemporaryFile).FullName
+                            Set-Content -Path $tempFile -Value $args[0] -Force
+                            diskpart /s $tempFile
+                            Remove-Item $tempFile
+                        } -ArgumentList $command
                     }
                     catch {
                         Stop-PSFFunction -Message "Could not create clone" -Target $vhd -Continue -ErrorRecord $_

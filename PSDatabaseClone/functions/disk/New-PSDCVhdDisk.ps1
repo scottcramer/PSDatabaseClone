@@ -71,7 +71,7 @@
         [string]$Name,
         [string]$FileName,
         [ValidateSet('VHD', 'VHDX', 'vhd', 'vhdx')]
-        [string]$VhdType,
+        [string]$VhdType = 'VHDX',
         [uint64]$Size,
         [switch]$FixedSize,
         [switch]$ReadOnly,
@@ -96,12 +96,6 @@
                     Stop-PSFFunction -Message "Couldn't create directory $Destination" -ErrorRecord $_ -Target $Destination -Continue
                 }
             }
-        }
-
-        # Check the vhd type
-        if (-not $VhdType) {
-            Write-PSFMessage -Message "Setting vhd type to 'VHDX'" -Level Verbose
-            $VhdType = 'VHDX'
         }
 
         # Make sure thevalue is in uppercase all th time
@@ -170,20 +164,6 @@
                 }
             }
         }
-
-        # Set the location where to save the diskpart command
-        $diskpartScriptFile = Get-PSFConfigValue -FullName psdatabaseclone.diskpart.scriptfile -Fallback "$env:APPDATA\psdatabaseclone\diskpartcommand.txt"
-
-        if (-not (Test-Path -Path $diskpartScriptFile)) {
-            if ($PSCmdlet.ShouldProcess($diskpartScriptFile, "Creating dispart file")) {
-                try {
-                    $null = New-Item -Path $diskpartScriptFile -ItemType File
-                }
-                catch {
-                    Stop-PSFFunction -Message "Could not create diskpart script file" -ErrorRecord $_ -Continue
-                }
-            }
-        }
     }
 
     process {
@@ -199,13 +179,13 @@
                 else {
                     $command = "create vdisk file='$vhdPath' maximum=$Size type=expandable"
                 }
-
-                # Set the content of the diskpart script file
-                Set-Content -Path $diskpartScriptFile -Value $command -Force
-
-                $script = [ScriptBlock]::Create("diskpart /s $diskpartScriptFile")
-                $null = Invoke-PSFCommand -ScriptBlock $script
-
+                
+                $null = Invoke-PSFCommand -ScriptBlock {
+                    $tempFile = (New-TemporaryFile).FullName
+                    Set-Content -Path $tempFile -Value $command -Force
+                    diskpart /s $tempFile
+                    Remove-Item -Path $tempFile
+                }
             }
             catch {
                 Stop-PSFFunction -Message "Something went wrong creating the vhd" -ErrorRecord $_ -Continue
@@ -214,9 +194,6 @@
     }
 
     end {
-        # Clean up the script file for diskpart
-        Remove-Item $diskpartScriptFile -Force -Confirm:$false
-
         # Test if there are any errors
         if (Test-PSFFunctionInterrupt) { return }
 
