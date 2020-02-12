@@ -205,7 +205,7 @@
             Stop-PSFFunction -Message "Could not connect to Sql Server instance $SourceSqlInstance" -ErrorRecord $_ -Target $SourceSqlInstance
             return
         }
-
+<# 
         # Cleanup the values in the network path
         if ($ImageNetworkPath.EndsWith("\")) {
             $ImageNetworkPath = $ImageNetworkPath.Substring(0, $ImageNetworkPath.Length - 1)
@@ -230,13 +230,11 @@
 
             # Check the result
             if ($resultPSRemote.Result) {
-                $command = [scriptblock]::Create("Import-Module PSDatabaseClone -Force")
-
                 try {
-                    Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $Credential
+                    Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock { Import-Module PSDatabaseClone -Force }
                 }
                 catch {
-                    Stop-PSFFunction -Message "Couldn't import module remotely" -Target $command
+                    Stop-PSFFunction -Message "Couldn't import module remotely"
                     return
                 }
             }
@@ -254,9 +252,10 @@
                         $ImageLocalPath = Convert-PSDCUncPathToLocalPath -UncPath $ImageNetworkPath -EnableException
                     }
                     else {
-                        $command = "Convert-PSDCUncPathToLocalPath -UncPath `"$ImageNetworkPath`" -EnableException"
-                        $commandGetLocalPath = [ScriptBlock]::Create($command)
-                        $ImageLocalPath = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $commandGetLocalPath -Credential $DestinationCredential
+                        $ImageLocalPath = Invoke-PSFCommand -ComputerName $computer -Credential $DestinationCredential -ScriptBlock {
+                            param($p1)
+                            Convert-PSDCUncPathToLocalPath -UncPath "$p1" -EnableException
+                        } -ArgumentList $ImageNetworkPath
 
                         if (-not $ImageLocalPath) {
                             return
@@ -281,14 +280,10 @@
             # Check if the assigned value in the local path corresponds to the one retrieved
             try {
                 # Check if computer is local
-                if ($computer.IsLocalhost) {
-                    $convertedLocalPath = Convert-PSDCUncPathToLocalPath -UncPath $ImageNetworkPath -EnableException
-                }
-                else {
-                    $command = "Convert-PSDCUncPathToLocalPath -UncPath `"$ImageNetworkPath`" -EnableException"
-                    $commandGetLocalPath = [ScriptBlock]::Create($command)
-                    $convertedLocalPath = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $commandGetLocalPath -Credential $DestinationCredential
-                }
+                $convertedLocalPath = Invoke-PSFCommand -ComputerName $computer -Credential $DestinationCredential -ScriptBlock {
+                    param($p1)
+                    Convert-PSDCUncPathToLocalPath -UncPath "$p1" -EnableException
+                } -ArgumentList $ImageNetworkPath
 
                 Write-PSFMessage -Message "Converted '$ImageNetworkPath' to '$ImageLocalPath'" -Level Verbose
 
@@ -318,7 +313,8 @@
             }
 
             $imagePath = $ImageLocalPath
-        }
+        } #>
+        $imagePath = $ImageNetworkPath
 
         # Check the database parameter
         if ($Database) {
@@ -352,7 +348,7 @@
         foreach ($db in $DatabaseCollection) {
             Write-PSFMessage -Message "Creating image for database $db from $SourceSqlInstance" -Level Verbose
 
-            if ($PSCmdlet.ShouldProcess($db, "Checking available disk space for database")) {
+            <# if ($PSCmdlet.ShouldProcess($db, "Checking available disk space for database")) {
                 # Check the database size to the available disk space
                 if ($computer.IsLocalhost) {
                     $availableMB = (Get-PSDrive -Name $ImageLocalPath.Substring(0, 1)).Free / 1MB
@@ -367,7 +363,7 @@
                 if ($availableMB -lt $dbSizeMB) {
                     Stop-PSFFunction -Message "Size of database $($db.Name) does not fit within the image local path" -Target $db -Continue
                 }
-            }
+            } #>
 
             # Setup the image variables
             $imageName = "$($db.Name)_$timestamp"
@@ -397,16 +393,7 @@
                 # try to create the new VHD
                 try {
                     Write-PSFMessage -Message "Create the vhd $imageName" -Level Verbose
-
-                    # Check if computer is local
-                    if ($computer.IsLocalhost) {
-                        $null = New-PSDCVhdDisk -Destination $imagePath -Name $imageName -VhdType $VhdType -EnableException
-                    }
-                    else {
-                        $command = [ScriptBlock]::Create("New-PSDCVhdDisk -Destination '$imagePath' -Name $imageName -VhdType $VhdType -EnableException")
-                        $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                    }
-
+                    $null = New-PSDCVhdDisk -Destination $imagePath -Name $imageName -VhdType $VhdType -EnableException
                 }
                 catch {
                     Stop-PSFFunction -Message "Couldn't create vhd(x) $imageName" -Target $imageName -ErrorRecord $_ -Continue
@@ -414,110 +401,29 @@
             }
 
 
-            if ($PSCmdlet.ShouldProcess("$imageName", "Initializing the vhd")) {
+            if ($PSCmdlet.ShouldProcess("$imageName", "Mounting the vhd")) {
                 # Try to initialize the vhd
                 try {
-                    Write-PSFMessage -Message "Initializing the vhd $imageName" -Level Verbose
+                    Write-PSFMessage -Message "Mounting the vhd $imageName" -Level Verbose
 
-                    # Check if computer is local
-                    if ($computer.IsLocalhost) {
-                        $diskResult = Initialize-PSDCVhdDisk -Path $vhdPath -Credential $DestinationCredential -EnableException
-                    }
-                    else {
-                        $command = [ScriptBlock]::Create("Initialize-PSDCVhdDisk -Path $vhdPath -EnableException")
-                        $diskResult = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                    }
+                    Mount-PSDCVhdDisk -Path $vhdPath -AccessPath $accessPath
                 }
                 catch {
-                    Stop-PSFFunction -Message "Couldn't initialize vhd $vhdPath" -Target $imageName -ErrorRecord $_
+                    Stop-PSFFunction -Message "Couldn't mount vhd $vhdPath" -Target $imageName -ErrorRecord $_
                 }
-            }
-
-            # try to create access path
-            try {
-                # Check if access path is already present
-                if (-not (Test-Path -Path $accessPath)) {
-                    if ($PSCmdlet.ShouldProcess($accessPath, "Creating access path $accessPath")) {
-                        try {
-                            # Check if computer is local
-                            if ($computer.IsLocalhost) {
-                                $null = New-Item -Path $accessPath -ItemType Directory -Force
-                            }
-                            else {
-                                $command = [ScriptBlock]::Create("New-Item -Path $accessPath -ItemType Directory -Force")
-                                $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                            }
-                        }
-                        catch {
-                            Stop-PSFFunction -Message "Couldn't create access path directory" -ErrorRecord $_ -Target $accessPath -Continue
-                        }
-                    }
-                }
-
-                # Get the properties of the disk and partition
-                $disk = $diskResult.Disk
-                $partition = Get-Partition -DiskNumber $disk.Number | Where-Object {$_.Type -ne "Reserved"} | Select-Object -First 1
-
-                if ($PSCmdlet.ShouldProcess($accessPath, "Adding access path '$accessPath' to mounted disk")) {
-                    # Add the access path to the mounted disk
-                    if ($computer.IsLocalhost) {
-                        $null = Add-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition.PartitionNumber -AccessPath $accessPath -ErrorAction SilentlyContinue
-                    }
-                    else {
-                        $command = [ScriptBlock]::Create("Add-PartitionAccessPath -DiskNumber $($disk.Number) -PartitionNumber $($partition.PartitionNumber) -AccessPath $accessPath -ErrorAction SilentlyContinue")
-                        $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                    }
-                }
-
-            }
-            catch {
-                Stop-PSFFunction -Message "Couldn't create access path for partition" -ErrorRecord $_ -Target $diskResult.partition
             }
 
             # # Create folder structure for image
             $imageDataFolder = "$($imagePath)\$imageName\Data"
             $imageLogFolder = "$($imagePath)\$imageName\Log"
 
-            # Check if image data folder exist
-            if (-not (Test-Path -Path $imageDataFolder)) {
-                if ($PSCmdlet.ShouldProcess($accessPath, "Creating data folder in vhd")) {
-                    try {
-                        Write-PSFMessage -Message "Creating data folder for image" -Level Verbose
-
-                        # Check if computer is local
-                        if ($computer.IsLocalhost) {
-                            $null = New-Item -Path $imageDataFolder -ItemType Directory
-                        }
-                        else {
-                            $command = [ScriptBlock]::Create("New-Item -Path $imageDataFolder -ItemType Directory")
-                            $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                        }
-                    }
-                    catch {
-                        Stop-PSFFunction -Message "Couldn't create image data folder" -Target $imageName -ErrorRecord $_ -Continue
-                    }
+            $null = Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+                param($p1, $p2)
+                if (-not (Test-Path -Path $p1)) {
+                    New-Item -Path $p1 -ItemType Directory
                 }
-            }
-
-            # Test if the image log folder exists
-            if (-not (Test-Path -Path $imageLogFolder)) {
-                if ($PSCmdlet.ShouldProcess($accessPath, "Creating log folder in vhd")) {
-                    try {
-                        Write-PSFMessage -Message "Creating transaction log folder for image" -Level Verbose
-
-                        # Check if computer is local
-                        if ($computer.IsLocalhost) {
-                            $null = New-Item -Path $imageLogFolder -ItemType Directory
-                        }
-                        else {
-                            $command = [ScriptBlock]::Create("New-Item -Path $imageLogFolder -ItemType Directory")
-                            $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                        }
-
-                    }
-                    catch {
-                        Stop-PSFFunction -Message "Couldn't create image data folder" -Target $imageName -ErrorRecord $_ -Continue
-                    }
+                if (-not (Test-Path -Path $p2)) {
+                    New-Item -Path $p2 -ItemType Directory
                 }
             }
 
@@ -595,22 +501,11 @@
                 # Dismount the vhd
                 try {
                     Write-PSFMessage -Message "Dismounting vhd" -Level Verbose
-
-                    # Check if computer is local
-                    if ($computer.IsLocalhost) {
-                        # Dismount the VHD
-                        $null = Dismount-DiskImage -ImagePath $vhdPath
-
-                        # Remove the access path
-                        $null = Remove-Item -Path $accessPath -Force
-                    }
-                    else {
-                        $command = [ScriptBlock]::Create("Dismount-DiskImage -ImagePath $vhdPath")
-                        $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-
-                        $command = [ScriptBlock]::Create("Remove-Item -Path $accessPath -Force")
-                        $null = Invoke-PSFCommand -ComputerName $computer -ScriptBlock $command -Credential $DestinationCredential
-                    }
+                    $null = Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+                        param($p1, $p2)
+                        Dismount-DiskImage -ImagePath $p1
+                        Remove-Item -Path $p2 -Force
+                    } -ArgumentList $vhdPath, $accessPath
                 }
                 catch {
                     Stop-PSFFunction -Message "Couldn't dismount vhd" -Target $imageName -ErrorRecord $_ -Continue
@@ -723,5 +618,4 @@
 
         Write-PSFMessage -Message "Finished creating database image" -Level Verbose
     }
-
 }

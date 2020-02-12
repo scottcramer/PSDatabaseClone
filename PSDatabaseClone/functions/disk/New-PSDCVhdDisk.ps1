@@ -70,9 +70,12 @@
         [string]$Destination,
         [string]$Name,
         [string]$FileName,
+        [string]$ParentVhd,
         [ValidateSet('VHD', 'VHDX', 'vhd', 'vhdx')]
         [string]$VhdType,
         [uint64]$Size,
+        [System.Management.Automation.PSCredential]
+        $Credential,
         [switch]$FixedSize,
         [switch]$ReadOnly,
         [switch]$Force,
@@ -81,20 +84,23 @@
 
     begin {
         # Check if the console is run in Administrator mode
-        if ( -not (Test-PSDCElevated) ) {
-            Stop-PSFFunction -Message "Module requires elevation. Please run the console in Administrator mode"
-        }
+        #if ( -not (Test-PSDCElevated) ) {
+        #    Stop-PSFFunction -Message "Module requires elevation. Please run the console in Administrator mode"
+        #}
 
         # Check the destination path
-        if (-not (Test-Path $Destination)) {
-            if ($PSCmdlet.ShouldProcess($Destination, "Creating destination directory")) {
-                try {
-                    Write-PSFMessage -Message "Creating destination directory $Destination" -Level Verbose
-                    $null = New-Item -Path $Destination -ItemType Directory -Force
-                }
-                catch {
-                    Stop-PSFFunction -Message "Couldn't create directory $Destination" -ErrorRecord $_ -Target $Destination -Continue
-                }
+        if ($PSCmdlet.ShouldProcess($Destination, "Creating destination directory")) {
+            try {
+                Write-PSFMessage -Message "Creating destination directory $Destination" -Level Verbose
+                $null = Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+                    param($p1)
+                    if (-not (Test-Path -Path $p1)) {
+                        New-Item -Path $p1 -ItemType Directory -Force
+                    }
+                } -ArgumentList $Destination
+            }
+            catch {
+                Stop-PSFFunction -Message "Couldn't create directory $Destination" -ErrorRecord $_ -Target $Destination -Continue
             }
         }
 
@@ -157,13 +163,20 @@
         Write-PSFMessage -Message "Vhd path set to $vhdPath" -Level Verbose
 
         # Check if the file does not yet exist
-        if (Test-Path $vhdPath) {
+        $vhdExists = Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+            param($p1)
+            Test-Path -Path $p1
+        }
+        if (-not $vhdExists) {
             if (-not $Force) {
                 Stop-PSFFunction -Message "The vhd file already exists" -Continue
             }
             else {
                 try {
-                    Remove-Item -Path $vhdPath -Force:$Force
+                    Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+                        param($p1)
+                        Remove-Item -Path $p1 -Force:$p2
+                    } -ArgumentList $vhdPath, $Force
                 }
                 catch {
                     Stop-PSFFunction -Message "Could not remove VHD '$vhdPath'" -Continue -ErrorRecord $_
@@ -171,7 +184,7 @@
             }
         }
 
-        # Set the location where to save the diskpart command
+        <# # Set the location where to save the diskpart command
         $diskpartScriptFile = Get-PSFConfigValue -FullName psdatabaseclone.diskpart.scriptfile -Fallback "$env:APPDATA\psdatabaseclone\diskpartcommand.txt"
 
         if (-not (Test-Path -Path $diskpartScriptFile)) {
@@ -183,7 +196,7 @@
                     Stop-PSFFunction -Message "Could not create diskpart script file" -ErrorRecord $_ -Continue
                 }
             }
-        }
+        } #>
     }
 
     process {
@@ -192,20 +205,25 @@
 
         if ($PSCmdlet.ShouldProcess($vhdPath, "Creating VHD")) {
             # Check if the file needs to have a fixed size
+            $command = "create vdisk file='$vhdPath'"
+            if ($ParentVhd) {
+                $command += " parent='$ParentVhd'"
+            }
+            elseif ($FixedSize) {
+                $command += " maximum=$Size type=fixed"
+            }
+            else {
+                $command += " maximum=$Size type=expandable"
+            }
             try {
-                if ($FixedSize) {
-                    $command = "create vdisk file='$vhdPath' maximum=$Size type=fixed"
-                }
-                else {
-                    $command = "create vdisk file='$vhdPath' maximum=$Size type=expandable"
-                }
-
-                # Set the content of the diskpart script file
-                Set-Content -Path $diskpartScriptFile -Value $command -Force
-
-                $script = [ScriptBlock]::Create("diskpart /s $diskpartScriptFile")
-                $null = Invoke-PSFCommand -ScriptBlock $script
-
+                $null = Invoke-PSFCommand -ComputerName $computer -Credential $Credential -ScriptBlock {
+                    param($p1)
+                    $tempFile = (New-TemporaryFile).FullName
+                    # Set the content of the diskpart script file
+                    Set-Content -Path $tempFile -Value $p1 -Force
+                    diskpart /s "$tempFile"
+                    Remove-Item -Path $tempFile
+                } -ArgumentList $command
             }
             catch {
                 Stop-PSFFunction -Message "Something went wrong creating the vhd" -ErrorRecord $_ -Continue
@@ -214,9 +232,6 @@
     }
 
     end {
-        # Clean up the script file for diskpart
-        Remove-Item $diskpartScriptFile -Force -Confirm:$false
-
         # Test if there are any errors
         if (Test-PSFFunctionInterrupt) { return }
 
